@@ -1,0 +1,24 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "default": {
+            "format": "[ %(levelname)s ] %(name)s:L%(lineno)d: %(message)s"
+        }
+    },
+    "handlers": {
+        "stdout": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "default",
+            "stream": "ext://sys.stdout"
+        }
+    },
+    "loggers": {
+        "synapRT": {
+            "handlers": ["stdout"],
+            "level": "WARNING",
+            "propagate": false
+        }
+    }
+}

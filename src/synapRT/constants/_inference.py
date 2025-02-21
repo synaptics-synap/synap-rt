@@ -1,0 +1,8 @@
+from typing import Final
+
+DEFAULT_CONFIDENCE: Final = 0.5
+DEFAULT_IOU_THRESHOLD: Final = 0.5
+DEFAULT_IOU_WITH_MIN: Final = False
+DEFAULT_MAX_RESULTS: Final = 0
+DEFAULT_TOP_N: Final = 1
+DEFAULT_USE_NMS: Final = True
