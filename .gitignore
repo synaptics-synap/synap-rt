@@ -24,9 +24,11 @@ __pypackages__/
 
 .env
 .venv
+.test
 
 *.json
 !src/**/*.json
 *.png
 *.synap
+!/tests/data/*.synap
 *.whl

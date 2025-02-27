@@ -6,9 +6,11 @@ authors = [{ "name" = "Sauryadeep Pal", "email" = "sauryadeep.pal@synaptics.com"
 description = "SyNAP real-time AI Pipelines"
 readme = "README.md"
 license = { "file" = "LICENSE" }
-#dependencies = [
-#    "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.1-preview/synap_python-0.0.1-cp310-cp310-linux_aarch64.whl"
-#]
+dependencies = [
+    "opencv-python-headless",
+    "numpy",
+    "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.2-preview/synap_python-0.0.2-cp310-cp310-linux_aarch64.whl"
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
