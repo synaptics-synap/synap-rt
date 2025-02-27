@@ -7,6 +7,8 @@ description = "SyNAP real-time AI Pipelines"
 readme = "README.md"
 license = { "file" = "LICENSE" }
 dependencies = [
+    "opencv-python-headless",
+    "numpy",
     "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.2-preview/synap_python-0.0.2-cp310-cp310-linux_aarch64.whl"
 ]
 
@@ -15,3 +17,4 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
+"synapRT" = ["log_config.json"]
