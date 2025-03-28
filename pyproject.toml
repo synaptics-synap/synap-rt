@@ -5,7 +5,7 @@ requires-python = ">=3.10"
 authors = [{ "name" = "Sauryadeep Pal", "email" = "sauryadeep.pal@synaptics.com" }]
 description = "SyNAP real-time AI Pipelines"
 readme = "README.md"
-license = { "file" = "LICENSE" }
+license = "Apache-2.0"
 dependencies = [
     "opencv-python-headless",
     "numpy",
