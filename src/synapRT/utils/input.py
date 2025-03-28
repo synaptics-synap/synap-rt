@@ -2,6 +2,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -113,6 +114,28 @@ def get_camera_devices(cam_subsys: str = "video4linux") -> list[str]:
                     logger.warning(f"Warning: Unexpected contents in {index_path}: {contents}")
 
     return camera_paths
+
+
+def get_microphone_devices(connector: str = "usb") -> list[str]:
+    mic_devices = []
+    client = GUdev.Client(subsystems=["sound"])
+    devices = client.query_by_subsystem("sound")
+
+    for device in devices:
+        dev_node = device.get_device_file()
+        if not dev_node:
+            continue
+        # match PCM capture devices: /dev/snd/pcmC{card}D{device}c
+        match = re.search(r"pcmC(\d+)D(\d+)c", dev_node)
+        if not match:
+            continue
+        sys_path = device.get_sysfs_path()
+        if sys_path and connector not in sys_path.lower():
+            continue
+        card_idx, device_idx = int(match.group(1)), int(match.group(2))
+        mic_devices.append(f"plughw:{card_idx},{device_idx}")
+
+    return mic_devices
 
 
 def get_input_type(input_src: str | os.PathLike) -> DataType:
