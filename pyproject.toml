@@ -9,7 +9,7 @@ license = "Apache-2.0"
 dependencies = [
     "opencv-python-headless",
     "numpy",
-    "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.2-preview/synap_python-0.0.2-cp310-cp310-linux_aarch64.whl"
+    "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.3-preview/synap_python-0.0.3-cp310-cp310-linux_aarch64.whl"
 ]
 
 [build-system]
