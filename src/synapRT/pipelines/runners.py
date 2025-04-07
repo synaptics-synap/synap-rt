@@ -11,8 +11,8 @@ from gi.repository import GLib, Gst
 
 from ..constants import DEFAULT_SKIP_FRAMES
 from ..utils.datatypes import DataType
-from ..utils.input import get_camera_devices
-from ..utils.gst import bus_call, handle_sigint, get_gst_elems
+from ..utils.input import get_camera_devices, get_microphone_devices
+from ..utils.gst import bus_call, handle_sigint, get_video_pre_elems
 
 __all__ = [
     "BaseRunner",
@@ -196,7 +196,7 @@ class GstVideoRunner(BaseRunner):
                     raise ValueError(
                         "Received 'cam' input but no available cameras detected"
                     )
-            self._pipeline_str = get_gst_elems(
+            self._pipeline_str = get_video_pre_elems(
                 input, input_type, self._model_inp_width, self._model_inp_height
             )
 

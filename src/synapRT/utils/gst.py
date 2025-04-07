@@ -10,8 +10,8 @@ from .datatypes import DataType
 __all__ = [
     "bus_call",
     "handle_sigint",
-    "get_input_elems",
-    "get_gst_elems",
+    "get_video_input_elems",
+    "get_video_pre_elems",
 ]
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def bus_call(bus: Gst.Bus, msg: Gst.Message, loop: GLib.MainLoop) -> bool:
     return True
 
 
-def get_input_elems(input: str, input_type: DataType) -> str:
+def get_video_input_elems(input: str, input_type: DataType) -> str:
     """
     Get suitable GStreamer elements based on the input source and type.
     
@@ -84,7 +84,7 @@ def get_input_elems(input: str, input_type: DataType) -> str:
         return f"rtspsrc location={input} latency=2000 ! rtpjitterbuffer ! rtph264depay wait-for-keyframe=true ! video/x-h264"
 
 
-def get_gst_elems(input: str, input_type: DataType, model_inp_width: int, model_inp_height: int) -> str:
+def get_video_pre_elems(input: str, input_type: DataType, model_inp_width: int, model_inp_height: int) -> str:
     """
     Get GStreamer elements for preprocessing the input source.
     
@@ -100,7 +100,7 @@ def get_gst_elems(input: str, input_type: DataType, model_inp_width: int, model_
     :rtype: str
     """
 
-    return f"{get_input_elems(input, input_type)}" \
+    return f"{get_video_input_elems(input, input_type)}" \
         "! videoconvert " \
         "! videoscale " \
         f"! video/x-raw,width={model_inp_width},height={model_inp_height},format=RGB "
