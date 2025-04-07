@@ -12,7 +12,7 @@ from gi.repository import GLib, Gst
 from ..constants import DEFAULT_SKIP_FRAMES
 from ..utils.datatypes import DataType
 from ..utils.input import get_camera_devices, get_microphone_devices
-from ..utils.gst import bus_call, handle_sigint, get_video_pre_elems
+from ..utils.gst import bus_call, handle_sigint, get_audio_elems, get_video_pre_elems
 
 __all__ = [
     "BaseRunner",
@@ -74,8 +74,7 @@ class BaseRunner(ABC):
         """
         Start the inference runner
         """
-        self.process_inputs()
-        self.initialize()
+        ...
 
     @abstractmethod
     def stop(self) -> None:
@@ -85,40 +84,26 @@ class BaseRunner(ABC):
         ...
 
 
-class GstVideoRunner(BaseRunner):
+class GstBaseRunner(BaseRunner):
     """
-    GStreamer-based video inference runner.
-    
+    Abstract base class for GStreamer-based inference runners.
+
     :param inputs_info: List of tuples containing input data and its type
-    :type inputs_info: list[tuple[str | os.PathLike, DataType]]
+    :type inputs_info: list[tuple[Any, DataType]]
     :param infer_func: Inference function to run on input data
     :type infer_func: Callable[[list[Any]], None]
-    :param model_inp_width: Model input width
-    :type model_inp_width: int
-    :param model_inp_height: Model input height
-    :type model_inp_height: int
-    :param skip_frames: Number of frames to skip between inference
-    :type skip_frames: int, optional
     """
 
     def __init__(
         self,
-        inputs_info: list[tuple[str | os.PathLike, DataType]],
-        infer_func: Callable[[list[Any]], None],
-        model_inp_width: int,
-        model_inp_height: int,
-        skip_frames: int | None = None
+        inputs_info: list[tuple[Any, DataType]],
+        infer_func: Callable[[list[Any]], None]
     ):
         super().__init__(inputs_info, infer_func)
 
-        self._model_inp_width = model_inp_width
-        self._model_inp_height = model_inp_height
-        self._skip_frames = skip_frames or DEFAULT_SKIP_FRAMES
-
-        self._inf_skip_counter: int = self._skip_frames
         self._pipeline_str: str | None = None
         self._pipeline: Gst.Element | None = None
-        self._bus_watch_ids: int = 0
+        self._bus_watch_id: int = 0
         self._main_loop: Gst.Element | None = None
     
     def _cleanup(self) -> None:
@@ -134,71 +119,6 @@ class GstVideoRunner(BaseRunner):
 
         if self._main_loop:
             self._main_loop.quit()
-    
-    def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
-        """
-        Callback function for new samples from GStreamer appsink.
-        
-        :param app_sink: GStreamer appsink element
-        :type app_sink: Gst.Element
-        :return: GStreamer flow return status
-        :rtype: Gst.FlowReturn
-        """
-        if self._inf_skip_counter > 0:
-            self._inf_skip_counter -= 1
-            return Gst.FlowReturn.OK
-        
-        self._inf_skip_counter = self._skip_frames
-        sample = app_sink.emit("pull-sample")
-        caps = sample.get_caps()
-        structure = caps.get_structure(0)
-        height = structure.get_value("height")
-        width = structure.get_value("width")
-        buffer = sample.get_buffer()
-        success, map_info = buffer.map(Gst.MapFlags.READ)
-        if not success:
-            raise RuntimeError("Error: Could not map buffer data")
-
-        data = np.ndarray(
-            shape=(height, width, 3),
-            dtype=np.uint8,
-            buffer=map_info.data)
-
-        buffer.unmap(map_info)
-
-        try:
-            self._infer_func([data])
-        except RuntimeError as e:
-            logger.error(f"Fatal: Inference failed: {e}")
-            return Gst.FlowReturn.ERROR
-
-        return Gst.FlowReturn.OK
-
-    def process_inputs(self) -> None:
-        """
-        Process input and prepare for inference.
-        
-        :raises TypeError: If non-video input is received
-        :raises ValueError: If multiple inputs are received
-        :raises ValueError: If input is "cam" and no available cameras are detected
-        """
-        if len(self._inputs_info) > 1:
-            raise ValueError("Video runner does not support multiple inputs")
-        input, input_type = self._inputs_info[0]
-        if input_type not in (DataType.VID_CAM, DataType.VID_FILE, DataType.VID_RTSP):
-            raise TypeError(f"Non-video input '{input}' received in video runner")
-        else:
-            if input == "cam":
-                cams = get_camera_devices()
-                try:
-                    input = cams.pop()
-                except IndexError:
-                    raise ValueError(
-                        "Received 'cam' input but no available cameras detected"
-                    )
-            self._pipeline_str = get_video_pre_elems(
-                input, input_type, self._model_inp_width, self._model_inp_height
-            )
 
     def initialize(self) -> None:
         """
@@ -208,6 +128,10 @@ class GstVideoRunner(BaseRunner):
         """
         Gst.init(None)
         self._main_loop = GLib.MainLoop()
+
+        if not self._pipeline_str:
+            self._cleanup()
+            raise RuntimeError("GStreamer pipeline string is not set")
 
         appsink_name = f"infer_sink"
         # TODO: Add low buffer `! queue` before appsink for smoother performance
@@ -276,12 +200,226 @@ class GstVideoRunner(BaseRunner):
         """
         Start the GStreamer pipelines.
         """
-        super().run()
+        self.process_inputs()
+        self.initialize()
         self._main_loop.run()
         self._cleanup()
 
     def stop(self) -> None:
         self._cleanup()
+    
+    @abstractmethod
+    def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
+        """
+        Callback function for new samples from GStreamer appsink.
+        
+        :param app_sink: GStreamer appsink element
+        :type app_sink: Gst.Element
+        :return: GStreamer flow return status
+        :rtype: Gst.FlowReturn
+        """
+        ...
+
+
+class GstAudioRunner(GstBaseRunner):
+    """
+    GStreamer-based audio inference runner.
+
+    :param inputs_info: List of tuples containing input data and its type
+    :type inputs_info: list[tuple[str | os.PathLike, DataType]]
+    :param infer_func: Inference function to run on input data
+    :type infer_func: Callable[[list[Any]], None]
+    :param sample_rate: Audio sample rate (Hz)
+    :type sample_rate: int
+    :param n_channels: Number of audio channels
+    :type n_channels: int
+    :param sample_width: Audio sample width (bytes)
+    :type sample_width: int
+    :param chunk_duration: Duration of audio chunks (seconds)
+    :type chunk_duration: float
+    """
+
+    def __init__(
+        self,
+        inputs_info: list[tuple[str | os.PathLike, DataType]],
+        infer_func: Callable[[list[Any]], None],
+        sample_rate: int,
+        n_channels: int,
+        sample_width: int,
+        chunk_duration: float
+    ):
+        super().__init__(inputs_info, infer_func)
+
+        self._sample_rate = sample_rate
+        self._audio_channels = n_channels
+        self._sample_width = sample_width
+        self._chunk_duration = chunk_duration
+        self._chunk_size = int(self._sample_rate * self._chunk_duration * self._audio_channels * self._sample_width)
+        self._chunk_samples = int(self._chunk_size // self._sample_width)
+
+    def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
+        """
+        Callback function for new audio samples from GStreamer appsink.
+        
+        :param app_sink: GStreamer appsink element
+        :type app_sink: Gst.Element
+        :return: GStreamer flow return status
+        :rtype: Gst.FlowReturn
+        """
+        sample = app_sink.emit("pull-sample")
+        if not sample:
+            return Gst.FlowReturn.ERROR
+
+        buffer = sample.get_buffer()
+        success, map_info = buffer.map(Gst.MapFlags.READ)
+        if not success:
+            raise RuntimeError("Error: Could not map buffer data")
+
+        data = np.frombuffer(map_info.data, dtype=np.int16) # matches S16LE
+        n_samples = data.size
+        if n_samples != self._chunk_samples:
+            logger.warning(f"Buffer size mismatch. Expected {self._chunk_samples} samples, got {n_samples} samples")
+            if n_samples < self._chunk_samples:
+                diff = self._chunk_samples - n_samples
+                logger.info(f"Adding {diff} samples ({diff * self._sample_width} bytes) of zero padding")
+                data = np.pad(data, (0, diff), mode="constant", constant_values=0)
+            else:
+                diff = n_samples - self._chunk_samples
+                logger.info(f"Truncating {diff} samples ({diff * self._sample_width} bytes)")
+                data = data[:self._chunk_samples]
+
+        buffer.unmap(map_info)
+
+        try:
+            self._infer_func([data])
+        except RuntimeError as e:
+            logger.error(f"Fatal: Inference failed: {e}")
+            return Gst.FlowReturn.ERROR
+
+        return Gst.FlowReturn.OK
+
+    def process_inputs(self) -> None:
+        """
+        Process input and prepare for inference.
+        
+        :raises TypeError: If non-audio input is received
+        :raises ValueError: If multiple inputs are received
+        :raises ValueError: input is "mic" and no available microphones are detected
+        """
+        if len(self._inputs_info) > 1:
+            raise ValueError("Audio runner does not support multiple inputs")
+        input, input_type = self._inputs_info[0]
+        if input_type not in (DataType.AUD_MIC, DataType.AUD_FILE):
+            raise TypeError(f"Non-audio input '{input}' received in audio runner")
+        else:
+            if input == "mic":
+                mics = get_microphone_devices()
+                try:
+                    input = mics.pop()
+                except IndexError:
+                    raise ValueError(
+                        "Received 'mic' input but no available microphones detected"
+                    )
+            self._pipeline_str = get_audio_elems(
+                input, input_type, self._chunk_duration, self._sample_rate, self._audio_channels, self._sample_width
+            )
+
+
+class GstVideoRunner(GstBaseRunner):
+    """
+    GStreamer-based video inference runner.
+    
+    :param inputs_info: List of tuples containing input data and its type
+    :type inputs_info: list[tuple[str | os.PathLike, DataType]]
+    :param infer_func: Inference function to run on input data
+    :type infer_func: Callable[[list[Any]], None]
+    :param model_inp_width: Model input width
+    :type model_inp_width: int
+    :param model_inp_height: Model input height
+    :type model_inp_height: int
+    :param skip_frames: Number of frames to skip between inference
+    :type skip_frames: int, optional
+    """
+
+    def __init__(
+        self,
+        inputs_info: list[tuple[str | os.PathLike, DataType]],
+        infer_func: Callable[[list[Any]], None],
+        model_inp_width: int,
+        model_inp_height: int,
+        skip_frames: int | None = None
+    ):
+        super().__init__(inputs_info, infer_func)
+
+        self._model_inp_width = model_inp_width
+        self._model_inp_height = model_inp_height
+        self._skip_frames = skip_frames or DEFAULT_SKIP_FRAMES
+        self._inf_skip_counter: int = self._skip_frames
+    
+    def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
+        """
+        Callback function for new video samples from GStreamer appsink.
+        
+        :param app_sink: GStreamer appsink element
+        :type app_sink: Gst.Element
+        :return: GStreamer flow return status
+        :rtype: Gst.FlowReturn
+        """
+        if self._inf_skip_counter > 0:
+            self._inf_skip_counter -= 1
+            return Gst.FlowReturn.OK
+        
+        self._inf_skip_counter = self._skip_frames
+        sample = app_sink.emit("pull-sample")
+        caps = sample.get_caps()
+        structure = caps.get_structure(0)
+        height = structure.get_value("height")
+        width = structure.get_value("width")
+        buffer = sample.get_buffer()
+        success, map_info = buffer.map(Gst.MapFlags.READ)
+        if not success:
+            raise RuntimeError("Error: Could not map buffer data")
+
+        data = np.ndarray(
+            shape=(height, width, 3),
+            dtype=np.uint8,
+            buffer=map_info.data)
+
+        buffer.unmap(map_info)
+
+        try:
+            self._infer_func([data])
+        except RuntimeError as e:
+            logger.error(f"Fatal: Inference failed: {e}")
+            return Gst.FlowReturn.ERROR
+
+        return Gst.FlowReturn.OK
+
+    def process_inputs(self) -> None:
+        """
+        Process input and prepare for inference.
+        
+        :raises TypeError: If non-video input is received
+        :raises ValueError: If multiple inputs are received
+        :raises ValueError: If input is "cam" and no available cameras are detected
+        """
+        if len(self._inputs_info) > 1:
+            raise ValueError("Video runner does not support multiple inputs")
+        input, input_type = self._inputs_info[0]
+        if input_type not in (DataType.VID_CAM, DataType.VID_FILE, DataType.VID_RTSP):
+            raise TypeError(f"Non-video input '{input}' received in video runner")
+        else:
+            if input == "cam":
+                cams = get_camera_devices()
+                try:
+                    input = cams.pop()
+                except IndexError:
+                    raise ValueError(
+                        "Received 'cam' input but no available cameras detected"
+                    )
+            self._pipeline_str = get_video_pre_elems(
+                input, input_type, self._model_inp_width, self._model_inp_height
+            )
 
 
 class ImageRunner(BaseRunner):
@@ -331,7 +469,8 @@ class ImageRunner(BaseRunner):
         """
         Start the image inference runner.
         """
-        super().run()
+        self.process_inputs()
+        self.initialize()
         for image in self._images:
             self._infer_func([image])
 
