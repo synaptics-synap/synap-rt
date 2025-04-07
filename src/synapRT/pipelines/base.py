@@ -308,7 +308,7 @@ class BasePipeline(ABC):
             self._raise_with_lock(ValueError(f"No valid inputs for pipeline '{self.name}'"), PipelineState.ABORTED)
         
         input_data_types: list[DataType] = [info[1] for info in self._inputs_info]
-        if all(t == DataType.AUDIO for t in input_data_types):
+        if all(t in (DataType.AUD_FILE, DataType.AUD_MIC) for t in input_data_types):
             self._inputs_data_type = DataType.AUDIO
         elif all(t == DataType.NP_ARRAY for t in input_data_types):
             self._inputs_data_type = DataType.NP_ARRAY

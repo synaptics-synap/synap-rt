@@ -151,11 +151,13 @@ def get_input_type(input_src: str | os.PathLike) -> DataType:
         return DataType.VID_CAM
     elif input_src.startswith("rtsp://"):
         return DataType.VID_RTSP
+    elif input_src == "mic":
+        return DataType.AUD_MIC
 
     mime_type, _ = mimetypes.guess_type(input_src)
     if mime_type:
         if mime_type.startswith("audio") and _is_valid_audio(input_src):
-            return DataType.AUDIO
+            return DataType.AUD_FILE
         elif mime_type.startswith("image") and _is_valid_image(input_src):
             return DataType.IMAGE
         elif mime_type.startswith("video") and _is_valid_video(input_src):
