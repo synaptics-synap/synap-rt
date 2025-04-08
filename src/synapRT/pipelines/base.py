@@ -82,7 +82,7 @@ class BasePipeline(ABC):
         self._error: Exception | None = None
         self._results: Any | None = None
         self._state: PipelineState = PipelineState.INIT
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
 
     @property
     def error(self) -> Exception | None:
@@ -233,7 +233,13 @@ class BasePipeline(ABC):
         if isinstance(self._runner, BaseRunner):
             return
         if self._inputs_data_type == DataType.AUDIO:
-            self._raise_with_lock(NotImplementedError("Audio input not supported yet"), PipelineState.ABORTED)
+            self._runner = GstAudioRunner(
+                self._inputs_info,
+                self._infer,
+                sample_rate=self._runner_params.get("sample_rate"),
+                n_channels=self._runner_params.get("n_channels"),
+                chunk_duration=self._runner_params.get("chunk_duration")
+            )
         elif self._inputs_data_type == DataType.NP_ARRAY:
             self._raise_with_lock(NotImplementedError("Numpy array input not supported yet"), PipelineState.ABORTED)
         elif self._inputs_data_type == DataType.IMAGE:

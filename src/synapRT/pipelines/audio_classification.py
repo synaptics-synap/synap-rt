@@ -16,20 +16,23 @@ from ..constants import (
     # audio
     DEFAULT_AUDIO_CHANNELS,
     DEFAULT_AUDIO_SAMPLE_RATE,
-    DEFAULT_AUDIO_SAMPLE_WIDTH,
-    DEFAULT_CHUNK_AUDIO_DURATION
+    DEFAULT_CHUNK_AUDIO_DURATION,
+    # mel spectrogram
+    DEFAULT_MEL_AXIS_ORDER,
+    DEFAULT_MEL_INPUT_FORMAT,
+    DEFAULT_MEL_LOG,
 )
 
 __all__ = [
-    "YAMNetPipeline",
+    "MelSpecClassificationPipeline",
 ]
 
 logger = logging.getLogger(__name__)
 
 
-class YAMNetPipeline(BasePipeline):
+class MelSpecClassificationPipeline(BasePipeline):
     """
-    Audio classification pipeline for YAMNet.
+    A pipeline for audio classification for models using log-mel spectrogram inputs.
 
     :param model: Path to SyNAP model file
     :type model: os.PathLike
@@ -68,20 +71,21 @@ class YAMNetPipeline(BasePipeline):
             profile_window=int(infer_params.get("profile_window", DEFAULT_PROFILE_WINDOW)),
             sample_rate=int(infer_params.get("audio_sample_rate", DEFAULT_AUDIO_SAMPLE_RATE)),
             n_channels=int(infer_params.get("audio_channels", DEFAULT_AUDIO_CHANNELS)),
-            sample_width=int(infer_params.get("audio_sample_width", DEFAULT_AUDIO_SAMPLE_WIDTH)),
             chunk_duration=float(infer_params.get("chunk_duration", DEFAULT_CHUNK_AUDIO_DURATION))
         )
         self._top_n: int = int(infer_params.get("top_n", DEFAULT_TOP_N))
         self._confidence: float = float(infer_params.get("confidence", DEFAULT_CONFIDENCE))
 
         # STFT params
-        self._window_len = int(round(float(infer_params.get("window"), window) * self._audio_sample_rate))
-        self._hop_len = int(round(float(infer_params.get("hop"), hop) * self._audio_sample_rate))
+        self._audio_sample_rate=int(infer_params.get("audio_sample_rate", DEFAULT_AUDIO_SAMPLE_RATE))
+        self._input_format = infer_params.get("input_format", DEFAULT_MEL_INPUT_FORMAT)
+        self._log_mel = str(infer_params.get("log_mel", DEFAULT_MEL_LOG)).lower() == "true"
+        self._axis_order = infer_params.get("axis_order", DEFAULT_MEL_AXIS_ORDER)
+        self._window_len = int(round(float(infer_params.get("window", window)) * self._audio_sample_rate))
+        self._hop_len = int(round(float(infer_params.get("hop", hop)) * self._audio_sample_rate))
         self._n_fft = int(infer_params.get("n_fft", n_fft))
         self._min_freq = float(infer_params.get("min_freq", min_freq))
         self._max_freq = float(infer_params.get("max_freq", max_freq))
-        self._n_frames = self.inputs[0].shape[2]
-        self._n_mels = self.inputs[0].shape[3]
 
     def preprocess(self, data: list[np.ndarray]) -> list[np.ndarray]:
         """
@@ -96,6 +100,8 @@ class YAMNetPipeline(BasePipeline):
             raise TypeError(f"Expected raw audio as np.ndarray, but got {type(raw_audio)}")
 
         audio_float = raw_audio.astype(np.float32) / 32768.0
+        n_frames = self.inputs[0].shape[2]
+        n_mels = self.inputs[0].shape[3]
 
         # Short-time Fourier Transform -> Power spectrum
         stft = librosa.stft(
@@ -113,18 +119,25 @@ class YAMNetPipeline(BasePipeline):
         mel_spectrogram = librosa.feature.melspectrogram(
             S=spectrogram,
             sr=self._audio_sample_rate,
-            n_mels=self._n_mels,
+            n_mels=n_mels,
             fmin=self._min_freq,
             fmax=self._max_freq
         )
 
-        # convert to log scale (log-mel) and transpose to [time_frames, n_mels]
-        log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=1.0).T
+        if self._log_mel:
+            log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=1.0)
+        else:
+            log_mel_spectrogram = np.log(mel_spectrogram + 1e-6)
+        
+        if self._axis_order == "mel_first":
+            log_mel_spectrogram = log_mel_spectrogram
+        else:
+            log_mel_spectrogram = log_mel_spectrogram.T
 
         # enforce a fixed number of frames
         num_frames = log_mel_spectrogram.shape[0]
-        if num_frames < self._n_frames:
-            pad_width = self._n_frames - num_frames
+        if num_frames < n_frames:
+            pad_width = n_frames - num_frames
             log_mel_spectrogram = np.pad(
                 log_mel_spectrogram,
                 ((0, pad_width), (0, 0)),
@@ -133,11 +146,15 @@ class YAMNetPipeline(BasePipeline):
             )
             logger.info(f"Added {pad_width} frames of zero padding to log-mel spectrogram")
         else:
-            log_mel_spectrogram = log_mel_spectrogram[:self._n_frames, :]
-            logger.info(f"Truncated {num_frames - self._n_frames} frames from log-mel spectrogram")
+            log_mel_spectrogram = log_mel_spectrogram[:n_frames, :]
+            logger.info(f"Truncated {num_frames - n_frames} frames from log-mel spectrogram")
 
-        # reshape to [1, 1, n_frames, n_bins] for inference
-        log_mel_spectrogram = log_mel_spectrogram[np.newaxis, np.newaxis, :, :]
+        if self._input_format == "nchw":
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, np.newaxis, :, :]  # [1, 1, F, T]
+        elif self._input_format == "bft":
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :]  # [1, T, M]
+        elif self._input_format == "nhwc":
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :, np.newaxis]
 
         return [log_mel_spectrogram.astype(np.float32)]
 
