@@ -64,7 +64,7 @@ def bus_call(bus: Gst.Bus, msg: Gst.Message, loop: GLib.MainLoop) -> bool:
     return True
 
 
-def get_audio_elems(input: str, input_type: DataType, chunk_duration: float, sample_rate: int, channels: int, sample_width: int) -> str:
+def get_audio_elems(input: str, input_type: DataType, sample_rate: int, channels: int) -> str:
     """
     Get suitable GStreamer elements for audio inputs.
     
@@ -72,23 +72,18 @@ def get_audio_elems(input: str, input_type: DataType, chunk_duration: float, sam
     :type input: str
     :param input_type: Audio input source type (microphone or file)
     :type input_type: DataType
-    :param chunk_duration: Duration of audio chunks (seconds)
-    :type chunk_duration: float
     :param sample_rate: Audio sample rate (Hz)
     :type sample_rate: int
     :param channels: Number of audio channels
     :type channels: int
-    :param sample_width: Audio sample width (bytes)
-    :type sample_width: int
     :return: GStreamer elements for audio input source
     :rtype: str
     """
 
     if input_type == DataType.AUD_MIC:
-        inp_elem = f"alsasrc device={input} buffer-time={int(chunk_duration * 1e6)}"
+        inp_elem = f"alsasrc device={input}"
     else:
-        blocksize = int(sample_rate * chunk_duration * channels * sample_width)
-        inp_elem = f"filesrc location={input} blocksize={blocksize}"
+        inp_elem = f"filesrc location={input}"
     return f"{inp_elem} ! decodebin ! audioconvert ! audioresample " \
         f"! audio/x-raw,format=S16LE,channels={int(channels)},rate={int(sample_rate)}"
 

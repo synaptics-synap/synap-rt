@@ -10,12 +10,14 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
 from ..constants import DEFAULT_SKIP_FRAMES
+from ..constants._internal import AUDIO_SAMPLE_WIDTH
 from ..utils.datatypes import DataType
 from ..utils.input import get_camera_devices, get_microphone_devices
 from ..utils.gst import bus_call, handle_sigint, get_audio_elems, get_video_pre_elems
 
 __all__ = [
     "BaseRunner",
+    "GstAudioRunner",
     "GstVideoRunner",
     "ImageRunner"
 ]
@@ -233,8 +235,6 @@ class GstAudioRunner(GstBaseRunner):
     :type sample_rate: int
     :param n_channels: Number of audio channels
     :type n_channels: int
-    :param sample_width: Audio sample width (bytes)
-    :type sample_width: int
     :param chunk_duration: Duration of audio chunks (seconds)
     :type chunk_duration: float
     """
@@ -245,17 +245,17 @@ class GstAudioRunner(GstBaseRunner):
         infer_func: Callable[[list[Any]], None],
         sample_rate: int,
         n_channels: int,
-        sample_width: int,
         chunk_duration: float
     ):
         super().__init__(inputs_info, infer_func)
 
         self._sample_rate = sample_rate
-        self._audio_channels = n_channels
-        self._sample_width = sample_width
+        self._n_channels = n_channels
         self._chunk_duration = chunk_duration
-        self._chunk_size = int(self._sample_rate * self._chunk_duration * self._audio_channels * self._sample_width)
-        self._chunk_samples = int(self._chunk_size // self._sample_width)
+        self._chunk_size = int(self._sample_rate * self._chunk_duration * self._n_channels * AUDIO_SAMPLE_WIDTH)
+        self._chunk_samples = int(self._chunk_size // AUDIO_SAMPLE_WIDTH)
+
+        self._samples_buffer: np.ndarray = np.array([], dtype=np.int16)
 
     def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
         """
@@ -276,25 +276,20 @@ class GstAudioRunner(GstBaseRunner):
             raise RuntimeError("Error: Could not map buffer data")
 
         data = np.frombuffer(map_info.data, dtype=np.int16) # matches S16LE
-        n_samples = data.size
-        if n_samples != self._chunk_samples:
-            logger.warning(f"Buffer size mismatch. Expected {self._chunk_samples} samples, got {n_samples} samples")
-            if n_samples < self._chunk_samples:
-                diff = self._chunk_samples - n_samples
-                logger.info(f"Adding {diff} samples ({diff * self._sample_width} bytes) of zero padding")
-                data = np.pad(data, (0, diff), mode="constant", constant_values=0)
-            else:
-                diff = n_samples - self._chunk_samples
-                logger.info(f"Truncating {diff} samples ({diff * self._sample_width} bytes)")
-                data = data[:self._chunk_samples]
-
+        logger.debug(f"Got {data.size} samples ({data.size * AUDIO_SAMPLE_WIDTH} bytes) from GStreamer pipeline")
         buffer.unmap(map_info)
 
-        try:
-            self._infer_func([data])
-        except RuntimeError as e:
-            logger.error(f"Fatal: Inference failed: {e}")
-            return Gst.FlowReturn.ERROR
+        self._samples_buffer = np.concatenate((self._samples_buffer, data))
+        logger.debug(f"Current buffer size: {self._samples_buffer.size} samples ({self._samples_buffer.size * AUDIO_SAMPLE_WIDTH} bytes)")
+        if self._samples_buffer.size >= self._chunk_samples:
+            infer_data = self._samples_buffer[:self._chunk_samples]
+            self._samples_buffer = self._samples_buffer[self._chunk_samples:]
+            try:
+                logger.debug(f"Running inference on {infer_data.size} samples ({infer_data.size * AUDIO_SAMPLE_WIDTH} bytes)")
+                self._infer_func([infer_data])
+            except RuntimeError as e:
+                logger.error(f"Fatal: Inference failed: {e}")
+                return Gst.FlowReturn.ERROR
 
         return Gst.FlowReturn.OK
 
@@ -321,8 +316,9 @@ class GstAudioRunner(GstBaseRunner):
                         "Received 'mic' input but no available microphones detected"
                     )
             self._pipeline_str = get_audio_elems(
-                input, input_type, self._chunk_duration, self._sample_rate, self._audio_channels, self._sample_width
+                input, input_type, self._sample_rate, self._n_channels
             )
+            print(self._pipeline_str)
 
 
 class GstVideoRunner(GstBaseRunner):
