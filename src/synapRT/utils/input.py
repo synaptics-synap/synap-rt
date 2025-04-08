@@ -77,6 +77,7 @@ def check_model_file(model_file: os.PathLike) -> bool:
         return False
     if not Path(model_file).exists():
         logger.error(f"Error: SyNAP model '{model_file}' not found")
+        return False
     model_file: Path = Path(model_file).resolve()
     try:
         subprocess.run([
