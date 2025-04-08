@@ -23,7 +23,6 @@ if __name__ == "__main__":
         "-t", "--task",
         type=str,
         required=True,
-        choices=["image-classification", "object-detection"],
         help="Task to perform"
     )
     parser.add_argument(
