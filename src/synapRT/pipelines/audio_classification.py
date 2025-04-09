@@ -70,7 +70,6 @@ class MelSpecClassificationPipeline(BasePipeline):
             profile=str(infer_params.get("profile", DEFAULT_EN_PROFILING)).lower() == "true",
             profile_window=int(infer_params.get("profile_window", DEFAULT_PROFILE_WINDOW)),
             sample_rate=int(infer_params.get("audio_sample_rate", DEFAULT_AUDIO_SAMPLE_RATE)),
-            n_channels=int(infer_params.get("audio_channels", DEFAULT_AUDIO_CHANNELS)),
             chunk_duration=float(infer_params.get("chunk_duration", DEFAULT_CHUNK_AUDIO_DURATION))
         )
         self._top_n: int = int(infer_params.get("top_n", DEFAULT_TOP_N))

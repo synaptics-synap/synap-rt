@@ -237,7 +237,6 @@ class BasePipeline(ABC):
                 self._inputs_info,
                 self._infer,
                 sample_rate=self._runner_params.get("sample_rate"),
-                n_channels=self._runner_params.get("n_channels"),
                 chunk_duration=self._runner_params.get("chunk_duration")
             )
         elif self._inputs_data_type == DataType.NP_ARRAY:

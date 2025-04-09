@@ -244,16 +244,12 @@ class GstAudioRunner(GstBaseRunner):
         inputs_info: list[tuple[str | os.PathLike, DataType]],
         infer_func: Callable[[list[Any]], None],
         sample_rate: int,
-        n_channels: int,
         chunk_duration: float
     ):
         super().__init__(inputs_info, infer_func)
 
         self._sample_rate = sample_rate
-        self._n_channels = n_channels
         self._chunk_duration = chunk_duration
-        self._chunk_size = int(self._sample_rate * self._chunk_duration * self._n_channels * AUDIO_SAMPLE_WIDTH)
-        self._chunk_samples = int(self._chunk_size // AUDIO_SAMPLE_WIDTH)
 
         self._samples_buffer: np.ndarray = np.array([], dtype=np.int16)
 
@@ -270,6 +266,18 @@ class GstAudioRunner(GstBaseRunner):
         if not sample:
             return Gst.FlowReturn.ERROR
 
+        n_channels: int = 1
+        caps = sample.get_caps()
+        if caps is not None and caps.get_size() > 0:
+            structure = caps.get_structure(0)
+            success, channels = structure.get_int("channels")
+            if success:
+                n_channels = channels
+                logger.debug(f"Detected {n_channels} audio channel(s) from GStreamer caps")
+        else:
+            logger.warning("Failed to get GStreamer caps, channel count defaulting to 1")
+        chunk_samples: int = int(self._sample_rate * self._chunk_duration * n_channels)
+
         buffer = sample.get_buffer()
         success, map_info = buffer.map(Gst.MapFlags.READ)
         if not success:
@@ -279,11 +287,15 @@ class GstAudioRunner(GstBaseRunner):
         logger.debug(f"Got {data.size} samples ({data.size * AUDIO_SAMPLE_WIDTH} bytes) from GStreamer pipeline")
         buffer.unmap(map_info)
 
+        if n_channels > 1:
+            logger.debug(f"Downmixing {n_channels} channels to mono")
+            data = data.reshape(-1, n_channels).mean(axis=1).astype(np.int16)
+
         self._samples_buffer = np.concatenate((self._samples_buffer, data))
         logger.debug(f"Current buffer size: {self._samples_buffer.size} samples ({self._samples_buffer.size * AUDIO_SAMPLE_WIDTH} bytes)")
-        if self._samples_buffer.size >= self._chunk_samples:
-            infer_data = self._samples_buffer[:self._chunk_samples]
-            self._samples_buffer = self._samples_buffer[self._chunk_samples:]
+        if self._samples_buffer.size >= chunk_samples:
+            infer_data = self._samples_buffer[:chunk_samples]
+            self._samples_buffer = self._samples_buffer[chunk_samples:]
             try:
                 logger.debug(f"Running inference on {infer_data.size} samples ({infer_data.size * AUDIO_SAMPLE_WIDTH} bytes)")
                 self._infer_func([infer_data])
@@ -316,9 +328,8 @@ class GstAudioRunner(GstBaseRunner):
                         "Received 'mic' input but no available microphones detected"
                     )
             self._pipeline_str = get_audio_elems(
-                input, input_type, self._sample_rate, self._n_channels
+                input, input_type, self._sample_rate
             )
-            print(self._pipeline_str)
 
 
 class GstVideoRunner(GstBaseRunner):

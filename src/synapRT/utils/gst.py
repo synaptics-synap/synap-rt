@@ -64,7 +64,7 @@ def bus_call(bus: Gst.Bus, msg: Gst.Message, loop: GLib.MainLoop) -> bool:
     return True
 
 
-def get_audio_elems(input: str, input_type: DataType, sample_rate: int, channels: int) -> str:
+def get_audio_elems(input: str, input_type: DataType, sample_rate: int) -> str:
     """
     Get suitable GStreamer elements for audio inputs.
     
@@ -74,8 +74,6 @@ def get_audio_elems(input: str, input_type: DataType, sample_rate: int, channels
     :type input_type: DataType
     :param sample_rate: Audio sample rate (Hz)
     :type sample_rate: int
-    :param channels: Number of audio channels
-    :type channels: int
     :return: GStreamer elements for audio input source
     :rtype: str
     """
@@ -85,7 +83,7 @@ def get_audio_elems(input: str, input_type: DataType, sample_rate: int, channels
     else:
         inp_elem = f"filesrc location={input}"
     return f"{inp_elem} ! decodebin ! audioconvert ! audioresample " \
-        f"! audio/x-raw,format=S16LE,channels={int(channels)},rate={int(sample_rate)}"
+        f"! audio/x-raw,format=S16LE,rate={int(sample_rate)}"
 
 
 def get_video_input_elems(input: str, input_type: DataType) -> str:
