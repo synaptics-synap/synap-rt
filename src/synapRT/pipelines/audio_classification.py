@@ -14,7 +14,6 @@ from ..constants import (
     DEFAULT_PROFILE_WINDOW,
     DEFAULT_VALID_INPUT_TYPES,
     # audio
-    DEFAULT_AUDIO_CHANNELS,
     DEFAULT_AUDIO_SAMPLE_RATE,
     DEFAULT_CHUNK_AUDIO_DURATION,
     # mel spectrogram
@@ -59,8 +58,8 @@ class MelSpecClassificationPipeline(BasePipeline):
         window: float = 0.025,
         hop: float = 0.010,
         n_fft: int = 1024,
-        min_freq: float = 125,
-        max_freq: float = 7500,
+        min_freq: float = 0,
+        max_freq: float = 8000,
         **infer_params: Any
     ):
         super().__init__(
@@ -102,7 +101,7 @@ class MelSpecClassificationPipeline(BasePipeline):
         n_frames = self.inputs[0].shape[2]
         n_mels = self.inputs[0].shape[3]
 
-        # Short-time Fourier Transform -> Power spectrum
+        # STFT to generate power spectrogram
         stft = librosa.stft(
             audio_float,
             n_fft=self._n_fft,
@@ -110,60 +109,65 @@ class MelSpecClassificationPipeline(BasePipeline):
             win_length=self._window_len,
             window='hann',
             center=True,
-            pad_mode='reflect'
         )
-        spectrogram = np.abs(stft)**2
+        spectrogram = np.abs(stft)
 
         # mel filterbank
         mel_spectrogram = librosa.feature.melspectrogram(
             S=spectrogram,
             sr=self._audio_sample_rate,
+            n_fft=self._n_fft,
             n_mels=n_mels,
             fmin=self._min_freq,
             fmax=self._max_freq
         )
 
+        # convert to log scale
         if self._log_mel:
-            log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=1.0)
+            log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
         else:
             log_mel_spectrogram = np.log(mel_spectrogram + 1e-6)
-        
+
+        # swap time/mel axes if needed
         if self._axis_order == "mel_first":
-            log_mel_spectrogram = log_mel_spectrogram
+            pass  # i.e. do nothing
         else:
             log_mel_spectrogram = log_mel_spectrogram.T
 
-        # enforce a fixed number of frames
-        num_frames = log_mel_spectrogram.shape[0]
-        if num_frames < n_frames:
-            pad_width = n_frames - num_frames
+        # enforce fixed number of frames in the spectrogram dimension
+        mel_frames = log_mel_spectrogram.shape[0]
+        if mel_frames < n_frames:
+            pad_width = n_frames - mel_frames
+            pad_value = -80.0 if self._log_mel else 0.0
             log_mel_spectrogram = np.pad(
                 log_mel_spectrogram,
                 ((0, pad_width), (0, 0)),
                 mode='constant',
-                constant_values=0
+                constant_values=pad_value
             )
-            logger.info(f"Added {pad_width} frames of zero padding to log-mel spectrogram")
-        else:
+            logger.info(f"Added {pad_width} frames of padding to log-mel spectrogram")
+        elif mel_frames > n_frames:
             log_mel_spectrogram = log_mel_spectrogram[:n_frames, :]
-            logger.info(f"Truncated {num_frames - n_frames} frames from log-mel spectrogram")
+            logger.info(f"Truncated {mel_frames - n_frames} frames from log-mel spectrogram")
 
+        # reshape to match the desired model input format
         if self._input_format == "nchw":
-            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, np.newaxis, :, :]  # [1, 1, F, T]
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, np.newaxis, :, :] # [batch=1, channels=1, frames, mels]
         elif self._input_format == "bft":
-            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :]  # [1, T, M]
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :]             # [batch=1, frames, mels]
         elif self._input_format == "nhwc":
-            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :, np.newaxis]
+            log_mel_spectrogram = log_mel_spectrogram[np.newaxis, :, :, np.newaxis] # [batch=1, frames, mels, channels=1]
+        res = log_mel_spectrogram.astype(self.inputs[0].data_type.np_type())
+    
+        return [res]
 
-        return [log_mel_spectrogram.astype(np.float32)]
 
     def postprocess(self, data: Tensors) -> None:
         """
         Post-process the output of the model to get the top N predictions.
         """
         # get top N predictions
-        probs = data[0].to_numpy()
+        probs = data[0].to_numpy().flatten()
         predicted_indices = np.where(probs >= self._confidence)[0]
         predicted_indices = predicted_indices[np.argsort(probs[predicted_indices])[::-1]]
-        self._results = {idx: probs[idx] for idx in predicted_indices[:self._top_n]}
-        print(self._results)
+        self._results = {int(idx): float(probs[idx]) for idx in predicted_indices[:self._top_n]}
