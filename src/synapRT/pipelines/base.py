@@ -82,7 +82,7 @@ class BasePipeline(ABC):
         self._error: Exception | None = None
         self._results: Any | None = None
         self._state: PipelineState = PipelineState.INIT
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
 
     @property
     def error(self) -> Exception | None:
@@ -233,7 +233,12 @@ class BasePipeline(ABC):
         if isinstance(self._runner, BaseRunner):
             return
         if self._inputs_data_type == DataType.AUDIO:
-            self._raise_with_lock(NotImplementedError("Audio input not supported yet"), PipelineState.ABORTED)
+            self._runner = GstAudioRunner(
+                self._inputs_info,
+                self._infer,
+                sample_rate=self._runner_params.get("sample_rate"),
+                chunk_duration=self._runner_params.get("chunk_duration")
+            )
         elif self._inputs_data_type == DataType.NP_ARRAY:
             self._raise_with_lock(NotImplementedError("Numpy array input not supported yet"), PipelineState.ABORTED)
         elif self._inputs_data_type == DataType.IMAGE:
@@ -259,11 +264,12 @@ class BasePipeline(ABC):
         """
         if not check_model_file(self._model):
             self._raise_with_lock(RuntimeError(f"Fatal: Invalid SyNAP model"), PipelineState.ABORTED)
-        if not (model_inp_dims := get_model_input_dims(self._model)):
-            self._raise_with_lock(RuntimeError(f"Fatal: Invalid SyNAP model"), PipelineState.ABORTED)
-        self._model_inp_width, self._model_inp_height = model_inp_dims
         try:
             self._network = Network(self._model)
+            inp_dims = get_model_input_dims(self._network)
+            if len(inp_dims) > 1:
+                raise NotImplementedError("Multiple input models not supported")
+            self._model_inp_width, self._model_inp_height = list(inp_dims.values())[0]
         except RuntimeError as e:
             self._raise_with_lock(RuntimeError(f"Fatal: Failed to load model: {e}"), PipelineState.ABORTED, e)
 
@@ -308,7 +314,7 @@ class BasePipeline(ABC):
             self._raise_with_lock(ValueError(f"No valid inputs for pipeline '{self.name}'"), PipelineState.ABORTED)
         
         input_data_types: list[DataType] = [info[1] for info in self._inputs_info]
-        if all(t == DataType.AUDIO for t in input_data_types):
+        if all(t in (DataType.AUD_FILE, DataType.AUD_MIC) for t in input_data_types):
             self._inputs_data_type = DataType.AUDIO
         elif all(t == DataType.NP_ARRAY for t in input_data_types):
             self._inputs_data_type = DataType.NP_ARRAY

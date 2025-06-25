@@ -7,6 +7,7 @@ from . import object_detection
 from . import runners
 
 from .base import BasePipeline
+from .audio_classification import MelSpecClassificationPipeline
 from .image_classification import SynapImageClassificationPipeline
 from .object_detection import SynapObjectDetectionPipeline
 from .utils import PipelineState
@@ -61,6 +62,8 @@ def pipeline(
         pipeline = SynapImageClassificationPipeline(model, handler, **infer_params)
     elif task.lower() == "object-detection":
         pipeline = SynapObjectDetectionPipeline(model, handler, **infer_params)
+    elif task.lower() == "audio-classification":
+        pipeline = MelSpecClassificationPipeline(model, handler, **infer_params)
     else:
         raise NotImplementedError(f"No pipelines available for task '{task}'")
     if name:

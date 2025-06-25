@@ -6,7 +6,7 @@ SynapRT
 
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://developer.synaptics.com/)
 [![python](https://img.shields.io/badge/python-3.10-brightgreen)](https://www.python.org/downloads/release/python-3123/)
-[![version](https://img.shields.io/badge/release-0.0.1.preview-yellow)](./)
+[![version](https://img.shields.io/badge/release-0.0.2.preview-yellow)](./)
 [![license](https://img.shields.io/badge/license-Apache%202-blue)](./LICENSE)
 
 
@@ -36,7 +36,7 @@ source .venv/bin/activate
 Next, install the [latest release](https://github.com/spal-synaptics/SyNAP-Infer-RT/releases) directly on your Astra board:
 
 ```bash
-pip install https://github.com/synaptics-synap/synap-rt/releases/download/v0.0.1-preview/synap_rt-0.0.1-py3-none-any.whl
+pip install https://github.com/synaptics-synap/synap-rt/releases/download/v0.0.2-preview/synap_rt-0.0.2-py3-none-any.whl
 ```
 
 ### Simple Object Detection Pipeline

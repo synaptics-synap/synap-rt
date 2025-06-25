@@ -10,6 +10,8 @@ __all__ = [
 
 class DataType(Enum):
     AUDIO = auto()
+    AUD_MIC = auto()
+    AUD_FILE = auto()
     IMAGE = auto()
     NP_ARRAY = auto()
     VIDEO = auto()

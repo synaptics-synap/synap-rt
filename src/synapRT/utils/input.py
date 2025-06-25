@@ -2,15 +2,17 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import subprocess
 from pathlib import Path
 
 import cv2
 import numpy as np
-import zipfile
 import gi
 gi.require_version("GUdev", "1.0")
 from gi.repository import GUdev
+from synap import Network, Tensor
+from synap.types import Layout
 
 from .datatypes import DataType, PipelineParameters
 from ..constants._internal import MODEL_META_FILE
@@ -76,6 +78,7 @@ def check_model_file(model_file: os.PathLike) -> bool:
         return False
     if not Path(model_file).exists():
         logger.error(f"Error: SyNAP model '{model_file}' not found")
+        return False
     model_file: Path = Path(model_file).resolve()
     try:
         subprocess.run([
@@ -115,6 +118,28 @@ def get_camera_devices(cam_subsys: str = "video4linux") -> list[str]:
     return camera_paths
 
 
+def get_microphone_devices(connector: str = "usb") -> list[str]:
+    mic_devices = []
+    client = GUdev.Client(subsystems=["sound"])
+    devices = client.query_by_subsystem("sound")
+
+    for device in devices:
+        dev_node = device.get_device_file()
+        if not dev_node:
+            continue
+        # match PCM capture devices: /dev/snd/pcmC{card}D{device}c
+        match = re.search(r"pcmC(\d+)D(\d+)c", dev_node)
+        if not match:
+            continue
+        sys_path = device.get_sysfs_path()
+        if sys_path and connector not in sys_path.lower():
+            continue
+        card_idx, device_idx = int(match.group(1)), int(match.group(2))
+        mic_devices.append(f"plughw:{card_idx},{device_idx}")
+
+    return mic_devices
+
+
 def get_input_type(input_src: str | os.PathLike) -> DataType:
     input_src: str = str(input_src) if input_src else None
     if not input_src:
@@ -128,11 +153,13 @@ def get_input_type(input_src: str | os.PathLike) -> DataType:
         return DataType.VID_CAM
     elif input_src.startswith("rtsp://"):
         return DataType.VID_RTSP
+    elif input_src == "mic":
+        return DataType.AUD_MIC
 
     mime_type, _ = mimetypes.guess_type(input_src)
     if mime_type:
         if mime_type.startswith("audio") and _is_valid_audio(input_src):
-            return DataType.AUDIO
+            return DataType.AUD_FILE
         elif mime_type.startswith("image") and _is_valid_image(input_src):
             return DataType.IMAGE
         elif mime_type.startswith("video") and _is_valid_video(input_src):
@@ -142,36 +169,24 @@ def get_input_type(input_src: str | os.PathLike) -> DataType:
     return DataType.INVALID
 
 
-def get_model_input_dims(model: str) -> tuple[int, int] | None:
+def get_model_input_dims(model: str | os.PathLike | Network) -> dict[str, tuple[int, int]]:
     """
-    Attempts to find model input dimensions by parsing .synap file.
+    Gets model input dimensions by parsing .synap file.
     """
-    try:
-        with zipfile.ZipFile(model, "r") as mod_info:
-            if MODEL_META_FILE not in mod_info.namelist():
-                raise FileNotFoundError("Missing model metadata")
-            with mod_info.open(MODEL_META_FILE, "r") as meta_f:
-                metadata = json.load(meta_f)
-                inputs = metadata["Inputs"]
-                if len(inputs) > 1:
-                    raise NotImplementedError("Multiple input models not supported")
-                input_info = inputs[list(inputs.keys())[0]]
-                if input_info["format"] == "nhwc":
-                    inp_w, inp_h = input_info["shape"][2], input_info["shape"][1]
-                elif input_info["format"] == "nchw":
-                    inp_w, inp_h = input_info["shape"][3], input_info["shape"][2]
-                else:
-                    raise ValueError(
-                        f"Invalid metadata: unknown format \"{input_info['format']}\""
-                    )
-                logger.debug(f"Extracted model input size: {inp_w}x{inp_h}")
-                return inp_w, inp_h
-    except (zipfile.BadZipFile, FileNotFoundError) as e:
-        logger.error(f"Error: Invalid SyNAP model '{model}': {e.args[0]}")
-    except KeyError as e:
-        logger.error(f"Error: Missing model metadata '{e.args[0]}' for SyNAP model '{model}'")
-    except (NotImplementedError, ValueError) as e:
-        logger.error(f"Error: Invalid SyNAP model '{model}': {e.args[0]}")
+    def _get_size(inp_tensor: Tensor) -> tuple[int, int]:
+        if inp_tensor.layout == Layout.nchw:
+            return inp_tensor.shape[3], inp_tensor.shape[2]
+        elif inp_tensor.layout == Layout.nhwc:
+            return inp_tensor.shape[2], inp_tensor.shape[1]
+        else:
+            raise ValueError(f"Input tensor '{inp_tensor.name}' has invalid layout (model: '{str(model)}')")
+
+    input_sizes = {}
+    if not isinstance(model, Network):
+        model = Network(str(model))
+    for inp in model.inputs:
+        input_sizes[inp.name] = _get_size(inp)
+    return input_sizes
 
 
 def parse_params_file(file: os.PathLike, **params: str) -> PipelineParameters:
