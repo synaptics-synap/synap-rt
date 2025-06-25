@@ -8,10 +8,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import zipfile
 import gi
 gi.require_version("GUdev", "1.0")
 from gi.repository import GUdev
+from synap import Network, Tensor
+from synap.types import Layout
 
 from .datatypes import DataType, PipelineParameters
 from ..constants._internal import MODEL_META_FILE
@@ -168,36 +169,24 @@ def get_input_type(input_src: str | os.PathLike) -> DataType:
     return DataType.INVALID
 
 
-def get_model_input_dims(model: str) -> tuple[int, int] | None:
+def get_model_input_dims(model: str | os.PathLike | Network) -> dict[str, tuple[int, int]]:
     """
-    Attempts to find model input dimensions by parsing .synap file.
+    Gets model input dimensions by parsing .synap file.
     """
-    try:
-        with zipfile.ZipFile(model, "r") as mod_info:
-            if MODEL_META_FILE not in mod_info.namelist():
-                raise FileNotFoundError("Missing model metadata")
-            with mod_info.open(MODEL_META_FILE, "r") as meta_f:
-                metadata = json.load(meta_f)
-                inputs = metadata["Inputs"]
-                if len(inputs) > 1:
-                    raise NotImplementedError("Multiple input models not supported")
-                input_info = inputs[list(inputs.keys())[0]]
-                if input_info["format"] == "nhwc":
-                    inp_w, inp_h = input_info["shape"][2], input_info["shape"][1]
-                elif input_info["format"] == "nchw":
-                    inp_w, inp_h = input_info["shape"][3], input_info["shape"][2]
-                else:
-                    raise ValueError(
-                        f"Invalid metadata: unknown format \"{input_info['format']}\""
-                    )
-                logger.debug(f"Extracted model input size: {inp_w}x{inp_h}")
-                return inp_w, inp_h
-    except (zipfile.BadZipFile, FileNotFoundError) as e:
-        logger.error(f"Error: Invalid SyNAP model '{model}': {e.args[0]}")
-    except KeyError as e:
-        logger.error(f"Error: Missing model metadata '{e.args[0]}' for SyNAP model '{model}'")
-    except (NotImplementedError, ValueError) as e:
-        logger.error(f"Error: Invalid SyNAP model '{model}': {e.args[0]}")
+    def _get_size(inp_tensor: Tensor) -> tuple[int, int]:
+        if inp_tensor.layout == Layout.nchw:
+            return inp_tensor.shape[3], inp_tensor.shape[2]
+        elif inp_tensor.layout == Layout.nhwc:
+            return inp_tensor.shape[2], inp_tensor.shape[1]
+        else:
+            raise ValueError(f"Input tensor '{inp_tensor.name}' has invalid layout (model: '{str(model)}')")
+
+    input_sizes = {}
+    if not isinstance(model, Network):
+        model = Network(str(model))
+    for inp in model.inputs:
+        input_sizes[inp.name] = _get_size(inp)
+    return input_sizes
 
 
 def parse_params_file(file: os.PathLike, **params: str) -> PipelineParameters:

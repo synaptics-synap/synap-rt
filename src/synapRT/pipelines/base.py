@@ -264,11 +264,12 @@ class BasePipeline(ABC):
         """
         if not check_model_file(self._model):
             self._raise_with_lock(RuntimeError(f"Fatal: Invalid SyNAP model"), PipelineState.ABORTED)
-        if not (model_inp_dims := get_model_input_dims(self._model)):
-            self._raise_with_lock(RuntimeError(f"Fatal: Invalid SyNAP model"), PipelineState.ABORTED)
-        self._model_inp_width, self._model_inp_height = model_inp_dims
         try:
             self._network = Network(self._model)
+            inp_dims = get_model_input_dims(self._network)
+            if len(inp_dims) > 1:
+                raise NotImplementedError("Multiple input models not supported")
+            self._model_inp_width, self._model_inp_height = list(inp_dims.values())[0]
         except RuntimeError as e:
             self._raise_with_lock(RuntimeError(f"Fatal: Failed to load model: {e}"), PipelineState.ABORTED, e)
 
