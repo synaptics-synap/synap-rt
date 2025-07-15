@@ -1,7 +1,11 @@
 import os
 from typing import Any, Callable
 
-import librosa
+try:
+    import librosa
+except ImportError:
+    raise ImportError("librosa is required for audio classification pipelines. Please install it with 'pip install librosa'.")
+
 import logging
 import numpy as np
 from synap import Tensors
