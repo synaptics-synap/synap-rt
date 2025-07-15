@@ -4,7 +4,7 @@ from typing import Any, Callable
 try:
     import librosa
 except ImportError:
-    raise ImportError("librosa is required for audio classification pipelines. Please install it with 'pip install librosa'.")
+    raise ImportError("librosa is required for audio classification pipelines, install with 'pip install librosa'.")
 
 import logging
 import numpy as np
