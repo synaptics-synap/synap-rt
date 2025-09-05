@@ -62,11 +62,8 @@ def pipeline(
     elif task.lower() == "object-detection":
         pipeline = SynapObjectDetectionPipeline(model, handler, **infer_params)
     elif task.lower() == "audio-classification":
-        try:
-            from .audio_classification import MelSpecClassificationPipeline
-            pipeline = MelSpecClassificationPipeline(model, handler, **infer_params)
-        except ImportError as e:
-            raise RuntimeError("Audio classification pipeline not available, please ensure all dependencies are installed:\n" + e.msg)
+        from .audio_classification import MelSpecClassificationPipeline
+        pipeline = MelSpecClassificationPipeline(model, handler, **infer_params)
     else:
         raise NotImplementedError(f"No pipelines available for task '{task}'")
     if name:

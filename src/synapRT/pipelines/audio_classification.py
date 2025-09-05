@@ -3,8 +3,8 @@ from typing import Any, Callable
 
 try:
     import librosa
-except ImportError:
-    raise ImportError("librosa is required for audio classification pipelines, install with 'pip install librosa'.")
+except ModuleNotFoundError as e:
+    raise ImportError(f"'{e.name}' is required for audio classification pipelines.") from None
 
 import logging
 import numpy as np
