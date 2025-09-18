@@ -10,7 +10,7 @@ license-files = ["LICENSE*"]
 dependencies = [
     "opencv-python-headless",
     "numpy",
-    "synap-python @ https://github.com/synaptics-synap/synap-python/releases/download/v0.0.4-preview/synap_python-0.0.4-cp310-cp310-manylinux_2_35_aarch64.whl"
+    "synap-python"
 ]
 
 [build-system]
