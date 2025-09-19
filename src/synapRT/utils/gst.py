@@ -58,7 +58,7 @@ def bus_call(bus: Gst.Bus, msg: Gst.Message, loop: GLib.MainLoop) -> bool:
         logger.warning(f"GStreamer Warning: {warn}, debug: {debug}")
     elif msg_type == Gst.MessageType.ERROR:
         error, debug = msg.parse_error()
-        logger.error(f"GStreamer Error: {error}, debug: {debug}", file=sys.stderr)
+        logger.error(f"GStreamer Error: {error}, debug: {debug}")
         loop.quit()
 
     return True
