@@ -507,12 +507,8 @@ class SynapBasePipeline(BasePipeline):
                     self.inputs, inp_data, input_index=i
                 )
             else:
-                if inp_data.ndim == len(list(self.inputs[i].shape)) - 1:
-                    data_shape = Shape([1, *inp_data.shape])
-                else:
-                    data_shape = Shape(inp_data.shape)
                 self._assigned_rect = self.preprocessor.assign(
-                    self.inputs, inp_data, data_shape, Layout.nhwc, input_index=i
+                    self.inputs, inp_data[np.newaxis, :], Layout.nhwc, input_index=i
                 )
 
     def postprocess(self, outputs: Tensors) -> None:
