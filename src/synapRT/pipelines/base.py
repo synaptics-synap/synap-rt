@@ -251,7 +251,7 @@ class BasePipeline(ABC):
                 self._infer,
                 self._model_inp_width,
                 self._model_inp_height,
-                skip_frames = self._runner_params.get("skip_frames")
+                skip_frames=self._runner_params.get("skip_frames")
             )
         else:
             self._raise_with_lock(TypeError(f"Invalid input data type '{self._inputs_data_type}'"), PipelineState.ABORTED)
@@ -440,7 +440,7 @@ class SynapBasePipeline(BasePipeline):
             valid_input_types=valid_input_types or DEFAULT_VALID_INPUT_TYPES,
             profile=str(infer_params.get("profile", DEFAULT_EN_PROFILING)).lower() == "true",
             profile_window=int(infer_params.get("profile_window", DEFAULT_PROFILE_WINDOW)),
-            skip_frames=int(infer_params.get("skip_frames", DEFAULT_SKIP_FRAMES))
+            skip_frames=int(infer_params.get("skip_frames", DEFAULT_SKIP_FRAMES)),
         )
 
         if not isinstance(postprocessor, (Classifier, Detector)):
@@ -448,6 +448,23 @@ class SynapBasePipeline(BasePipeline):
         self.postprocessor: Classifier | Detector = postprocessor
         self.preprocessor: Preprocessor = Preprocessor()
         self._assigned_rect: Rect | None = None
+        self._results_raw: ClassifierResult | DetectorResult | None = None
+        self._no_overlay: bool = str(infer_params.get("no_overlay", False)) == "true"
+
+    def _init_runner(self):
+        super()._init_runner()
+        self._runner = GstVideoRunner(
+            self._inputs_info,
+            self._infer,
+            self._model_inp_width,
+            self._model_inp_height,
+            results_provider=(
+                "object-detection" if isinstance(self.postprocessor, Detector) else "image-classification",
+                self._latest_results
+            ),
+            skip_frames=self._runner_params.get("skip_frames"),
+            show_overlay=not self._no_overlay,
+        )
 
     def _result_to_dict(self, result: ClassifierResult | DetectorResult) -> dict:
         """
@@ -490,6 +507,10 @@ class SynapBasePipeline(BasePipeline):
         else:
             self._raise_with_lock(TypeError(f"Invalid postprocessed result type '{type(result)}'"), PipelineState.ERROR)
 
+    def _latest_results(self):
+        with self._lock:
+            return self._results_raw
+
     def preprocess(self, data: list) -> None:
         """
         Preprocess the input data before inference using SyNAP preprocessor.
@@ -526,6 +547,7 @@ class SynapBasePipeline(BasePipeline):
             results = self.postprocessor.process(outputs, self._assigned_rect)
         else:
             self._raise_with_lock(TypeError(f"Invalid postprocessor type '{type(self.postprocessor)}'"), PipelineState.ERROR)
+        self._results_raw = results
         self._results = self._result_to_dict(results)
 
 
