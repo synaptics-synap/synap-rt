@@ -5,7 +5,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
-from .datatypes import DataType
+from ..datatypes import DataType
 
 __all__ = [
     "bus_call",
