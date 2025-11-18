@@ -1,9 +1,9 @@
 from . import datatypes
-from . import gst
+from . import pipeline
 from . import input
 
 __all__ = [
     "datatypes",
-    "gst",
+    "pipeline",
     "input",
 ]

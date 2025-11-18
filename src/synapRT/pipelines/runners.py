@@ -14,7 +14,7 @@ from ..constants import DEFAULT_SKIP_FRAMES
 from ..constants._internal import AUDIO_SAMPLE_WIDTH
 from ..utils.datatypes import DataType
 from ..utils.input import get_camera_devices, get_microphone_devices
-from ..utils.gst import bus_call, handle_sigint, get_audio_elems, get_video_input_elems
+from ..utils.pipeline import bus_call, handle_sigint, get_audio_elems, get_video_input_elems
 
 __all__ = [
     "BaseRunner",
