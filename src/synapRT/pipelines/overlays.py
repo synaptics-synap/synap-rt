@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from time import perf_counter_ns
 from typing import Any, Callable
 import logging
 import math

@@ -1,10 +1,12 @@
 import math
+import logging
 import os
 import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum, auto
+from time import perf_counter_ns
 from typing import Final
 
 import cairo
@@ -21,6 +23,8 @@ __all__ = [
     "StyleConfig",
     "LabelCache",
 ]
+
+logger = logging.getLogger(__name__)
 
 _COLORS_COCO_BGR: Final[dict[int, list[int]]] = {
     0: [189, 114, 0], 1: [25, 83, 217], 2: [32, 176, 237], 3: [142, 47, 126],
@@ -159,6 +163,11 @@ class CairoSegMaskRenderer:
         self._max_workers = max_workers
         self._masks_data: list[MaskData] = []
 
+        # for debugging
+        self._mask_add_time = 0.0
+        self._mask_raster_time = 0.0
+        self._mask_draw_time = 0.0
+
     @staticmethod
     def rasterize_mask(mask_data: MaskData):
         buf = np.zeros((mask_data.mask_h, mask_data.mask_w), dtype=np.uint8)
@@ -198,6 +207,7 @@ class CairoSegMaskRenderer:
         alpha: float = 0.35
 
     ):
+        st = perf_counter_ns()
         self._masks_data.append(MaskData(
             mask_w,
             mask_h,
@@ -207,6 +217,7 @@ class CairoSegMaskRenderer:
             color=color,
             alpha=alpha
         ))
+        self._mask_add_time += perf_counter_ns() - st
 
     def draw_all_masks(
         self,
@@ -217,8 +228,11 @@ class CairoSegMaskRenderer:
         if frame_w is None or frame_h is None:
             return
 
+        st = perf_counter_ns()
         self._rasterize()
+        self._mask_raster_time = perf_counter_ns() - st
 
+        st = perf_counter_ns()
         for m in self._masks_data:
             ctx.save()
             if m.bbox:
@@ -252,5 +266,17 @@ class CairoSegMaskRenderer:
 
             ctx.mask(pattern)
             ctx.restore()
+        self._mask_draw_time = perf_counter_ns() - st
+
+        logger.debug(
+            "%s: Seg mask overlay time (ms): add = %.3f, raster = %.3f, draw = %.3f",
+            self.__class__.__name__,
+            self._mask_add_time / 1e6,
+            self._mask_raster_time / 1e6,
+            self._mask_draw_time / 1e6
+        )
+        self._mask_add_time = 0
+        self._mask_raster_time = 0
+        self._mask_draw_time = 0
 
         self._masks_data.clear()
