@@ -453,7 +453,6 @@ class GstVideoRunner(GstBaseRunner):
                 f"t. ! queue max-size-buffers=1 leaky=downstream ! {infer_branch} "
                 f"t. ! queue ! {overlay_branch}"
             )
-        print(self._pipeline_str)
 
     def connect(self) -> None:
         super().connect()
