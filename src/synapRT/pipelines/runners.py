@@ -9,11 +9,12 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
+from .overlays import *
 from ..constants import DEFAULT_SKIP_FRAMES
 from ..constants._internal import AUDIO_SAMPLE_WIDTH
 from ..utils.datatypes import DataType
 from ..utils.input import get_camera_devices, get_microphone_devices
-from ..utils.gst import bus_call, handle_sigint, get_audio_elems, get_video_pre_elems
+from ..utils.gst.pipeline import bus_call, handle_sigint, get_audio_elems, get_video_input_elems
 
 __all__ = [
     "BaseRunner",
@@ -137,7 +138,10 @@ class GstBaseRunner(BaseRunner):
 
         appsink_name = f"infer_sink"
         # TODO: Add low buffer `! queue` before appsink for smoother performance
-        pipeline_str_full = f"{self._pipeline_str} ! appsink name={appsink_name}"
+        if "appsink name=" not in self._pipeline_str:
+            pipeline_str_full = f"{self._pipeline_str} ! appsink name={appsink_name}"
+        else:
+            pipeline_str_full = self._pipeline_str
         self._pipeline = Gst.parse_launch(pipeline_str_full)
         if not self._pipeline:
             self._cleanup()
@@ -157,6 +161,7 @@ class GstBaseRunner(BaseRunner):
         appsink.set_property("emit-signals", True)
         appsink.set_property("sync", True)
         appsink.connect("new-sample", self._on_new_sample)
+        self.connect()
     
         GLib.unix_signal_add(
             GLib.PRIORITY_HIGH, int(SIGINT), handle_sigint, self._main_loop, self._pipeline
@@ -209,6 +214,9 @@ class GstBaseRunner(BaseRunner):
 
     def stop(self) -> None:
         self._cleanup()
+
+    def connect(self) -> None:
+        pass
     
     @abstractmethod
     def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
@@ -354,13 +362,19 @@ class GstVideoRunner(GstBaseRunner):
         infer_func: Callable[[list[Any]], None],
         model_inp_width: int,
         model_inp_height: int,
-        skip_frames: int | None = None
+        results_provider: tuple[str, Callable[[], Any]] | None = None,
+        skip_frames: int | None = None,
+        show_overlay: bool = True,
     ):
         super().__init__(inputs_info, infer_func)
 
         self._model_inp_width = model_inp_width
         self._model_inp_height = model_inp_height
         self._skip_frames = skip_frames or DEFAULT_SKIP_FRAMES
+        if show_overlay and results_provider:
+            self._overlay = overlay_factory(*results_provider, model_inp_width, model_inp_height)
+        else:
+            self._overlay = None
         self._inf_skip_counter: int = self._skip_frames
     
     def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
@@ -415,18 +429,38 @@ class GstVideoRunner(GstBaseRunner):
         input, input_type = self._inputs_info[0]
         if input_type not in (DataType.VID_CAM, DataType.VID_FILE, DataType.VID_RTSP):
             raise TypeError(f"Non-video input '{input}' received in video runner")
+        if input == "cam":
+            cams = get_camera_devices()
+            try:
+                input = cams.pop()
+            except IndexError:
+                raise ValueError(
+                    "Received 'cam' input but no available cameras detected"
+                )
+
+        src = get_video_input_elems(input, input_type)
+        infer_branch: str = (
+            f"videoconvert ! videoscale "
+            f"! video/x-raw,format=RGB,width={self._model_inp_width},height={self._model_inp_height} "
+            f"! appsink name=infer_sink "
+        )
+        if not self._overlay:
+            self._pipeline_str = f"{src} ! queue max-size-buffers=1 leaky=downstream ! {infer_branch}"
         else:
-            if input == "cam":
-                cams = get_camera_devices()
-                try:
-                    input = cams.pop()
-                except IndexError:
-                    raise ValueError(
-                        "Received 'cam' input but no available cameras detected"
-                    )
-            self._pipeline_str = get_video_pre_elems(
-                input, input_type, self._model_inp_width, self._model_inp_height
+            overlay_branch = self._overlay.pipeline
+            self._pipeline_str = (
+                f"{src} ! tee name=t "
+                f"t. ! queue max-size-buffers=1 leaky=downstream ! {infer_branch} "
+                f"t. ! queue ! {overlay_branch}"
             )
+
+    def connect(self) -> None:
+        super().connect()
+        # hook cairooverlay signals
+        if self._overlay:
+            overlay = self._pipeline.get_by_name("overlay")
+            overlay.connect("caps-changed", self._overlay.on_caps_changed)
+            overlay.connect("draw", self._overlay.on_draw)
 
 
 class ImageRunner(BaseRunner):

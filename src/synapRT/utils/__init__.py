@@ -1,9 +1,10 @@
 from . import datatypes
-from . import gst
 from . import input
+from .gst import pipeline, overlay
 
 __all__ = [
     "datatypes",
-    "gst",
     "input",
+    "pipeline",
+    "overlay",
 ]
