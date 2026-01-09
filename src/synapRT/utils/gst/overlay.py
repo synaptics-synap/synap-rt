@@ -193,7 +193,8 @@ class CairoSegMaskRenderer:
                 with ThreadPoolExecutor(max_workers=n_threads) as ex:
                     ex.map(CairoSegMaskRenderer.rasterize_mask, self._masks_data)
             else:
-                map(CairoSegMaskRenderer.rasterize_mask, self._masks_data)
+                for m in self._masks_data:
+                    CairoSegMaskRenderer.rasterize_mask(m)
 
     def add_mask(
         self,
