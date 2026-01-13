@@ -396,6 +396,85 @@ class GstVideoRunner(GstBaseRunner):
         pix = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
         img[y1:y2, x1:x2] = pix
 
+    def _head_roi(self, pts, ox, oy, bw, bh, pad=50):
+        # head points 0..4
+        xs, ys = [], []
+        for i in (0,1,2,3,4):
+            if pts and pts[i] is not None:
+                x, y, _ = pts[i]
+                xs.append(x); ys.append(y)
+
+        if not xs:
+            return None
+
+        x1 = int(min(xs)) - pad
+        y1 = int(min(ys)) - pad
+        x2 = int(max(xs)) + pad
+        y2 = int(max(ys)) + pad
+
+        # estimate head size from shoulder width if available, else bbox width
+        LS, RS = 5, 6
+        shoulder_w = None
+        if pts and pts[LS] is not None and pts[RS] is not None:
+            shoulder_w = abs(float(pts[RS][0]) - float(pts[LS][0]))
+
+        min_w = int((shoulder_w * 0.55) if shoulder_w else (bw * 0.35))
+        min_h = int(min_w * 1.2)
+
+        # expand to minimum size around center of current head box
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
+        if (x2 - x1) < min_w:
+            x1 = cx - min_w // 2
+            x2 = cx + min_w // 2
+        if (y2 - y1) < min_h:
+            y1 = cy - min_h // 2
+            y2 = cy + min_h // 2
+
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    def _body_roi(self, pts, pad=50):
+        """
+        pts: list[17] of None or (x,y,score)
+        returns (x,y,w,h) or None
+        """
+        # body-related indices (no head)
+        idxs = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]  # +wrists
+
+        xs, ys = [], []
+        for i in idxs:
+            if pts and i < len(pts) and pts[i] is not None:
+                x, y, _ = pts[i]
+                xs.append(x); ys.append(y)
+
+        if len(xs) < 3:
+            return None
+
+        x1 = int(min(xs)) - pad
+        y1 = int(min(ys)) - pad
+        x2 = int(max(xs)) + pad
+        y2 = int(max(ys)) + pad
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    def _lower_body_bbox(self, ox, oy, bw, bh, head, min_gap=6):
+        if not head:
+            return (ox, oy, bw, bh)
+        hx, hy, hw, hh = head
+        new_y = hy + hh + min_gap
+        new_h = (oy + bh) - new_y
+        if new_h <= 0:
+            return None
+        return (ox, new_y, bw, new_h)
+
+    def _clamp_roi(self, x, y, w, h, W, H):
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(W, x + w)
+        y2 = min(H, y + h)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return (x1, y1, x2 - x1, y2 - y1)
+
     def _on_new_sample(self, app_sink: Gst.Element) -> Gst.FlowReturn:
         """
         Callback function for new video samples from GStreamer appsink.
@@ -441,18 +520,64 @@ class GstVideoRunner(GstBaseRunner):
         results = self._overlay._results_provider() if self._overlay else None
         if results:
             items = results.items if isinstance(results, DetectorResult) else (results.get("items", []) if isinstance(results, dict) else [])
-            for it in items:
-                cls = int(it.class_index) if isinstance(it, DetectorResultItem) else int(it.get("class_index", -1))
-                if cls != 0:
-                    continue
+        for it in items:
+            # if your pose model still uses class_index 0 for person, keep this
+            cls = int(it.class_index)
+            if cls != 0:
+                continue
 
-                bb = it.bounding_box if isinstance(it, DetectorResultItem) else it["bounding_box"]
-                ox = bb.origin.x if isinstance(it, DetectorResultItem) else bb["origin"]["x"]
-                oy = bb.origin.y if isinstance(it, DetectorResultItem) else bb["origin"]["y"]
-                bw = bb.size.x   if isinstance(it, DetectorResultItem) else bb["size"]["x"]
-                bh = bb.size.y   if isinstance(it, DetectorResultItem) else bb["size"]["y"]
+            bb = it.bounding_box
+            ox = int(bb.origin.x)
+            oy = int(bb.origin.y)
+            bw = int(bb.size.x)
+            bh = int(bb.size.y)
 
-                self._pixelate_roi(frame, int(ox), int(oy), int(bw), int(bh), block=12)
+            # landmarks: list of points with x/y/visibility (or None)
+            lm_pts = None
+            try:
+                lm = it.landmarks
+                if lm and len(lm) == 17:
+                    # convert to same format (x,y,score)
+                    lm_pts = []
+                    for p in lm:
+                        # visibility sometimes used as score
+                        sc = float(getattr(p, "visibility", 1.0))
+                        lm_pts.append((float(p.x), float(p.y), sc))
+            except Exception:
+                lm_pts = None
+
+            force_head = {0,1,2,3,4}      # nose/eyes/ears
+            pts17 = []
+
+            for i, (x, y, sc) in enumerate(lm_pts):
+                # keep head/hands even if low confidence
+                if sc >= 0.3 or (i in (force_head)):
+                    pts17.append((x, y, sc))
+                else:
+                    pts17.append(None)
+
+            H, W = frame.shape[:2]
+
+            # head ROI (your existing function)
+            head = self._head_roi(pts17, ox, oy, bw, bh)
+            head = self._clamp_roi(*head, W, H) if head else None
+
+            # body ROI from landmarks
+            body = self._body_roi(pts17)
+            body = self._clamp_roi(*body, W, H) if body else None
+
+            if not body:
+                body = self._lower_body_bbox(ox, oy, bw, bh, head, min_gap=6)
+                body = self._clamp_roi(*body, W, H) if body else None
+
+            head_block = 6
+            body_block = 10
+
+            # pixelate body (from landmarks)
+            if body:
+                self._pixelate_roi(frame, *body, block=body_block)
+            if head:
+                self._pixelate_roi(frame, *head, block=head_block)
 
         # push to display
         if not getattr(self, "_appsrc", None):
