@@ -99,7 +99,7 @@ def get_video_input_elems(input: str, input_type: DataType) -> str:
     """
 
     if input_type == DataType.VID_CAM:
-        return f"v4l2src device={input} ! video/x-raw,framerate=20/1,format=YUY2,width=640,height=480"
+        return f"v4l2src device={input} ! video/x-raw,framerate=30/1,format=YUY2,width=640,height=480"
     elif input_type == DataType.VID_FILE:
         return f"filesrc location={input} ! qtdemux name=demux demux.video_0 ! h264parse ! avdec_h264"
     elif input_type == DataType.VID_RTSP:
