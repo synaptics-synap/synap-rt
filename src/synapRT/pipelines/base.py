@@ -87,7 +87,7 @@ class BasePipeline(ABC):
     @property
     def error(self) -> Exception | None:
         return self._error
-    
+
     @property
     def finished(self) -> bool:
         return self._state == PipelineState.FINISHED
@@ -99,19 +99,19 @@ class BasePipeline(ABC):
     @property
     def outputs(self) -> Tensors:
         return self._network.outputs
-    
+
     @property
     def inference_time(self) -> float:
         return self._mean_inference_time
-    
+
     @property
     def state(self) -> PipelineState:
         return self._state
-    
+
     @property
     def name(self) -> str:
         return self._name
-    
+
     @name.setter
     def name(self, name: str) -> None:
         self._name = name
@@ -119,7 +119,7 @@ class BasePipeline(ABC):
     @property
     def runner(self) -> BaseRunner | None:
         return self._runner
-    
+
     @runner.setter
     def runner(self, runner: BaseRunner) -> None:
         self._runner = runner
@@ -156,7 +156,7 @@ class BasePipeline(ABC):
                 self._error = e
             if threading.current_thread() is threading.main_thread():
                 raise e
-    
+
     def __iter__(self) -> Generator[tuple[PipelineState, Any | None], None, None]:
         while self.state != PipelineState.FINISHED:
             yield self.poll()
@@ -167,7 +167,7 @@ class BasePipeline(ABC):
         """
         window_len = len(self._infer_times)
         self._mean_inference_time = (sum(self._infer_times) / window_len) * 1000
-            
+
     def _execute_pipeline(self) -> None:
         """
         Execute the pipeline runner.
@@ -191,11 +191,11 @@ class BasePipeline(ABC):
         """
         Run inference on the given data.
 
-        The preprocessor method must return a list of numpy arrays (where length of list must match number of network inputs), 
+        The preprocessor method must return a list of numpy arrays (where length of list must match number of network inputs),
         or directly assign input data to the network.
 
         The postprocessor method must accept a `synap.Tensors` object as input.
-        
+
         :param data: Input data for inference, list length must match the number of model inputs
         :type data: list
         :raises RuntimeError: If the model is not loaded
@@ -255,11 +255,11 @@ class BasePipeline(ABC):
             )
         else:
             self._raise_with_lock(TypeError(f"Invalid input data type '{self._inputs_data_type}'"), PipelineState.ABORTED)
-    
+
     def _load_network(self) -> None:
         """
         Load the SyNAP model and initialize the network.
-        
+
         :raises RuntimeError: If the model file is invalid or missing metadata.
         """
         if not check_model_file(self._model):
@@ -312,7 +312,7 @@ class BasePipeline(ABC):
                 self._inputs_info.append((input, input_type))
         if not self._inputs_info:
             self._raise_with_lock(ValueError(f"No valid inputs for pipeline '{self.name}'"), PipelineState.ABORTED)
-        
+
         input_data_types: list[DataType] = [info[1] for info in self._inputs_info]
         if all(t in (DataType.AUD_FILE, DataType.AUD_MIC) for t in input_data_types):
             self._inputs_data_type = DataType.AUDIO
@@ -346,7 +346,7 @@ class BasePipeline(ABC):
             if self._state == PipelineState.PENDING_RESULT:
                 self._state = PipelineState.FINISHED
             return self._state, self._results
-        
+
     def resume(self) -> None:
         """
         Resume the pipeline.
@@ -376,7 +376,7 @@ class BasePipeline(ABC):
     def update_model(self, model: os.PathLike) -> None:
         """
         Update SyNAP model used in the pipeline.
-        
+
         :param model: Path to new SyNAP model file
         """
         self._model = model
@@ -413,7 +413,7 @@ class BasePipeline(ABC):
 class SynapBasePipeline(BasePipeline):
     """
     Base class for an inference pipeline using SyNAP preprocessor and postprocessor.
-    
+
     :param model: Path to SyNAP model file
     :type model: os.PathLike
     :param postprocessor: SyNAP postprocessor instance
@@ -425,7 +425,7 @@ class SynapBasePipeline(BasePipeline):
     :param infer_params: Additional parameters for the inference pipeline
     :type infer_params: Any
     """
-    
+
     def __init__(
         self,
         model: os.PathLike,
@@ -449,7 +449,7 @@ class SynapBasePipeline(BasePipeline):
         self.preprocessor: Preprocessor = Preprocessor()
         self._assigned_rect: Rect | None = None
         self._results_raw: ClassifierResult | DetectorResult | None = None
-        self._no_overlay: bool = str(infer_params.get("no_overlay", False)) == "true"
+        self._no_overlay: bool = str(infer_params.get("no_overlay", False)).lower() == "true"
 
     def _init_runner(self):
         super()._init_runner()
@@ -535,7 +535,7 @@ class SynapBasePipeline(BasePipeline):
     def postprocess(self, outputs: Tensors) -> None:
         """
         Postprocess the inference outputs using SyNAP postprocessor.
-        
+
         :param outputs: Inference outputs
         :type outputs: Tensors
         :raises TypeError: If the postprocessor type is invalid

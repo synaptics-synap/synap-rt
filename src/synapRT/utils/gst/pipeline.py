@@ -67,7 +67,7 @@ def bus_call(bus: Gst.Bus, msg: Gst.Message, loop: GLib.MainLoop) -> bool:
 def get_audio_elems(input: str, input_type: DataType, sample_rate: int) -> str:
     """
     Get suitable GStreamer elements for audio inputs.
-    
+
     :param input: Audio input source (microphone or file)
     :type input: str
     :param input_type: Audio input source type (microphone or file)
@@ -89,7 +89,7 @@ def get_audio_elems(input: str, input_type: DataType, sample_rate: int) -> str:
 def get_video_input_elems(input: str, input_type: DataType) -> str:
     """
     Get suitable GStreamer elements based on the input source and type.
-    
+
     :param input: Input source
     :type input: str
     :param input_type: Input source type
@@ -99,7 +99,7 @@ def get_video_input_elems(input: str, input_type: DataType) -> str:
     """
 
     if input_type == DataType.VID_CAM:
-        return f"v4l2src device={input} ! video/x-raw,framerate=30/1,format=YUY2,width=640,height=480"
+        return f"v4l2src device={input} ! video/x-raw,framerate=20/1,format=YUY2,width=640,height=480"
     elif input_type == DataType.VID_FILE:
         return f"filesrc location={input} ! qtdemux name=demux demux.video_0 ! h264parse ! avdec_h264"
     elif input_type == DataType.VID_RTSP:
@@ -109,7 +109,7 @@ def get_video_input_elems(input: str, input_type: DataType) -> str:
 def get_video_pre_elems(input: str, input_type: DataType, model_inp_width: int, model_inp_height: int) -> str:
     """
     Get GStreamer elements for preprocessing the input source.
-    
+
     :param input: Input source
     :type input: str
     :param input_type: Input source type

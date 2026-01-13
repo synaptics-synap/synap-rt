@@ -47,7 +47,7 @@ class GstVideoOverlay(ABC):
             f"videoconvert ! videoscale ! video/x-raw,format=BGRA" \
             f"! cairooverlay name=overlay " \
             f"! waylandsink fullscreen={str(self._fullscreen).lower()}"
-    
+
         os.environ["XDG_RUNTIME_DIR"] = "/var/run/user/0"
         os.environ["WESTON_DISABLE_GBM_MODIFIERS"] = "true"
         os.environ["WAYLAND_DISPLAY"] = "wayland-1"
