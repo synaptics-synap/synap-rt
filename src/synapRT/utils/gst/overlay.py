@@ -155,7 +155,7 @@ class CairoSegMaskRenderer:
 
     def __init__(
         self,
-        threading: RenderingThreadingPolicy = RenderingThreadingPolicy.MAX_N,
+        threading: RenderingThreadingPolicy = RenderingThreadingPolicy.NONE,
         max_workers: int | None = None
     ):
         self._threading_policy = threading
