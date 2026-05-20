@@ -55,7 +55,6 @@ DEFAULT_COLORMAP: Final[dict[int, tuple[float,float,float]]] = {
 
 class RenderingThreadingPolicy(Enum):
     NONE  = auto()
-    SMART = auto()
     MAX_N = auto()
 
 
@@ -156,12 +155,16 @@ class CairoSegMaskRenderer:
 
     def __init__(
         self,
-        threading: RenderingThreadingPolicy = RenderingThreadingPolicy.SMART,
+        threading: RenderingThreadingPolicy = RenderingThreadingPolicy.NONE,
         max_workers: int | None = None
     ):
         self._threading_policy = threading
-        self._max_workers = max_workers
+        self._max_workers = max_workers or (os.cpu_count() or 4)
         self._masks_data: list[MaskData] = []
+        if self._threading_policy != RenderingThreadingPolicy.NONE:
+            self._executor = ThreadPoolExecutor(max_workers=self._max_workers)
+        else:
+            self._executor: ThreadPoolExecutor | None = None
 
         # for debugging
         self._mask_add_time = 0.0
@@ -176,24 +179,21 @@ class CairoSegMaskRenderer:
         buf *= 255
         mask_data.data = buf
 
+    def _ensure_executor(self) -> ThreadPoolExecutor:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=self._max_workers)
+        return self._executor
+
     def _rasterize(self):
         if self._masks_data:
-            n_masks: int = len(self._masks_data)
-            if self._threading_policy == RenderingThreadingPolicy.NONE:
-                use_threads: bool = False
-            elif self._threading_policy == RenderingThreadingPolicy.MAX_N:
-                use_threads: bool = True
-            else:
-                if n_masks > 3:
-                    use_threads = True
-                else:
-                    use_threads = False
+            use_threads = self._threading_policy != RenderingThreadingPolicy.NONE
             if use_threads:
-                n_threads: int = self._max_workers or max(n_masks, os.cpu_count() or 4)
-                with ThreadPoolExecutor(max_workers=n_threads) as ex:
-                    ex.map(CairoSegMaskRenderer.rasterize_mask, self._masks_data)
+                self._ensure_executor()
+                for _ in self._executor.map(CairoSegMaskRenderer.rasterize_mask, self._masks_data):
+                    pass
             else:
-                map(CairoSegMaskRenderer.rasterize_mask, self._masks_data)
+                for m in self._masks_data:
+                    CairoSegMaskRenderer.rasterize_mask(m)
 
     def add_mask(
         self,
